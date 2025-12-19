@@ -69,7 +69,7 @@ export default function Layout(props: ParentProps) {
   const command = useCommand()
 
   onMount(async () => {
-    if (platform.checkUpdate && platform.update) {
+    if (platform.checkUpdate && platform.update && platform.restart) {
       const { updateAvailable, version } = await platform.checkUpdate()
       if (updateAvailable) {
         showToast({
@@ -80,7 +80,10 @@ export default function Layout(props: ParentProps) {
           actions: [
             {
               label: "Install and restart",
-              onClick: () => platform!.update!(),
+              onClick: async () => {
+                await platform.update!()
+                await platform.restart!()
+              },
             },
             {
               label: "Not yet",
@@ -122,10 +125,18 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  function projectSessions(directory: string) {
+    if (!directory) return []
+    const sessions = globalSync
+      .child(directory)[0]
+      .session.toSorted((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
+    return flattenSessions(sessions ?? [])
+  }
+
   const currentSessions = createMemo(() => {
     if (!params.dir) return []
     const directory = base64Decode(params.dir)
-    return flattenSessions(globalSync.child(directory)[0].session ?? [])
+    return projectSessions(directory)
   })
 
   function navigateSessionByOffset(offset: number) {
@@ -162,7 +173,7 @@ export default function Layout(props: ParentProps) {
     const nextProject = projects[nextProjectIndex]
     if (!nextProject) return
 
-    const nextProjectSessions = flattenSessions(globalSync.child(nextProject.worktree)[0].session ?? [])
+    const nextProjectSessions = projectSessions(nextProject.worktree)
     if (nextProjectSessions.length === 0) {
       navigateToProject(nextProject.worktree)
       return
@@ -350,7 +361,7 @@ export default function Layout(props: ParentProps) {
     const opencode = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
 
     return (
-      <div class="relative size-5 shrink-0 rounded-sm overflow-hidden">
+      <div class="relative size-5 shrink-0 rounded-sm">
         <Avatar
           fallback={name()}
           src={props.project.id === opencode ? "https://opencode.ai/favicon.svg" : props.project.icon?.url}
@@ -511,7 +522,9 @@ export default function Layout(props: ParentProps) {
     const slug = createMemo(() => base64Encode(props.project.worktree))
     const name = createMemo(() => getFilename(props.project.worktree))
     const [store, setProjectStore] = globalSync.child(props.project.worktree)
-    const sessions = createMemo(() => store.session ?? [])
+    const sessions = createMemo(() =>
+      store.session.toSorted((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created)),
+    )
     const rootSessions = createMemo(() => sessions().filter((s) => !s.parentID))
     const childSessionsByParent = createMemo(() => {
       const map = new Map<string, Session[]>()
@@ -526,7 +539,7 @@ export default function Layout(props: ParentProps) {
     })
     const hasMoreSessions = createMemo(() => store.session.length >= store.limit)
     const loadMoreSessions = async () => {
-      setProjectStore("limit", (limit) => limit + 10)
+      setProjectStore("limit", (limit) => limit + 5)
       await globalSync.project.loadSessions(props.project.worktree)
     }
     const [expanded, setExpanded] = createSignal(true)
